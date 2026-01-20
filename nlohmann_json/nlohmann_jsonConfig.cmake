@@ -1,0 +1,6 @@
+# CMakeLists.txt
+find_package(nlohmann_json 3.2.0 REQUIRED)
+...
+add_library(foo ...)
+...
+target_link_libraries(foo PRIVATE nlohmann_json::nlohmann_json)
