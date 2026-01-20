@@ -1,0 +1,21 @@
+#include <httplib.h>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
+
+int main() {
+    httplib::Server server;
+
+    server.Get("/meta", [](const httplib::Request&, httplib::Response& res) {
+        json meta;
+        meta["agent"] = {
+            {"name", "Agent Gateway"},
+            {"version", "0.1.0"}
+        };
+        meta["dependencies"]["nlohmann_json"] = json::meta();
+
+        res.set_content(meta.dump(4), "application/json");
+    });
+
+    server.listen("0.0.0.0", 8080);
+}
