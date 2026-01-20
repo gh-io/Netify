@@ -15,3 +15,24 @@ add_subdirectory(nlohmann_json)
 add_library(foo ...)
 ...
 target_link_libraries(foo PRIVATE nlohmann_json::nlohmann_json)
+ Top level CMakeLists.txt
+project(FOO)
+...
+option(FOO_USE_EXTERNAL_JSON "Use an external JSON library" OFF)
+...
+add_subdirectory(thirdparty)
+...
+add_library(foo ...)
+...
+# Note that the namespaced target will always be available regardless of the
+# import method
+target_link_libraries(foo PRIVATE nlohmann_json::nlohmann_json)
+# thirdparty/CMakeLists.txt
+...
+if(FOO_USE_EXTERNAL_JSON)
+  find_package(nlohmann_json 3.2.0 REQUIRED)
+else()
+  set(JSON_BuildTests OFF CACHE INTERNAL "")
+  add_subdirectory(nlohmann_json)
+endif()
+...
