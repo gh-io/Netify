@@ -1,0 +1,19 @@
+/*
+    ____  __  __  ____  ____ 
+   / __ \/ / / / / __ \/ __ \
+  / /_/ / / / / / /_/ / / / /
+ / ____/ /_/ / / ____/ /_/ / 
+/_/    \____/ /_/    \____/  
+
+{{ project_name }}
+Version: {{ version }}
+Repository: {{ repo_url }}
+
+{% for line in copyright_lines -%}
+{{ line }}
+{% endfor %}
+
+{% for license in spdx_expressions -%}
+SPDX-License-Identifier: {{ license }}
+{% endfor %}
+*/
