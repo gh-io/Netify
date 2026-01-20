@@ -1,439 +1,204 @@
-# Netify Agent
-# GNU Autoconf configuration
-
-m4_include([m4/ax_pkg_installdir.m4])
-m4_include([m4/ax_cxx_compile_stdcxx_11.m4])
-m4_include([m4/ax_git_vars.m4])
-m4_include([m4/ax_check_progs.m4])
+# ==================================================
+# Agent Gateway – GNU Autoconf Configuration
+# ==================================================
 
 AC_PREREQ([2.69])
-AC_INIT([Netify Agent], [5.0.7],
-    [https://gitlab.com/netify.ai/public/netify-agent/issues],
-    [netifyd], [https://www.netify.ai/])
-AM_INIT_AUTOMAKE([1.9 tar-pax])
-AC_CONFIG_SRCDIR([src/netifyd.cpp])
-AC_CONFIG_SUBDIRS([libs/inih libs/ndpi])
+
+AC_INIT(
+  [Agent Gateway],
+  [0.1.0],
+  [https://github.com/yourname/agent-gateway/issues],
+  [agent-gateway],
+  [https://github.com/yourname/agent-gateway]
+)
+
+AM_INIT_AUTOMAKE([foreign subdir-objects])
+AC_CONFIG_SRCDIR([src/main.cpp])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_MACRO_DIR([m4])
-AC_USE_SYSTEM_EXTENSIONS
+
 AC_CANONICAL_HOST
-AC_DEFINE_UNQUOTED([_ND_HOST_CPU], ["${host_cpu}"], [Defines the canonical host.])
-AC_DEFINE_UNQUOTED([_ND_HOST_OS], ["${host_os}"], [Defines the canonical host OS.])
+AC_USE_SYSTEM_EXTENSIONS
 
-# Library version
-# https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
-m4_define([lnv_current], [4])
-m4_define([lnv_revision], [0])
-m4_define([lnv_age], [0])
-lt_version="lnv_current:lnv_revision:lnv_age"
-AC_SUBST([LIBNETIFY_VERSION], [$lt_version])
-
-# Shared object filename: (CURRENT - AGE).AGE.REVISION
-m4_define([lnv_so], m4_eval(lnv_current - lnv_age))
-#m4_define([lnv_so], [m4_eval([lnv_current] - [lnv_age])])
-so_version="so.lnv_so"
-AC_SUBST([LIBNETIFY_VERSION_SO], [$so_version])
-
-# Checks for programs.
+# --------------------------------------------------
+# Toolchain
+# --------------------------------------------------
 AC_PROG_CC
 AC_PROG_CXX
 AC_PROG_INSTALL
-AM_PROG_LEX([yywrap])
-AC_PROG_YACC
-AC_PROG_EGREP
-AC_CHECK_TOOL([STRIP], [strip])
 LT_INIT
-PKG_PROG_PKG_CONFIG([0.23])
-AX_PKG_INSTALLDIR
-AX_CHECK_PROGS
 
-# Defines we will pass to pkg-config:
-ND_DEFINES=""
-
-# Check compiler flags
 AX_CXX_COMPILE_STDCXX_11
 AS_VAR_APPEND([CXXFLAGS], [" -std=gnu++11"])
 
-# Checks for libraries.
-AC_CHECK_LIB([pthread],
-    [pthread_create], [], [AC_MSG_ERROR([libpthread/pthread_create() not found.])])
-AC_CHECK_LIB([dl],
-    [dlopen], [], [AC_MSG_ERROR([libdl/dlopen() not found.])])
-AC_CHECK_LIB([rt],
-    [timer_create], [], [AC_MSG_ERROR([librt/timer_create() not found.])])
+# --------------------------------------------------
+# Host info (for code)
+# --------------------------------------------------
+AC_DEFINE_UNQUOTED([AG_HOST_CPU], ["$host_cpu"], [Target CPU])
+AC_DEFINE_UNQUOTED([AG_HOST_OS],  ["$host_os"],  [Target OS])
 
-AC_CHECK_LIB([atomic], [__atomic_load_8])
-
-AC_CHECK_LIB([pcap], [pcap_open_live])
-AC_CHECK_FUNC([pcap_open_dead], [
-    AC_DEFINE([HAVE_PCAP_OPEN_DEAD], [1], [Define if pcap_open_dead is available.])
-])
-
-AS_IF([test "$ac_cv_lib_pcap_pcap_open_live" = "yes"], [
-    AC_DEFINE([_ND_USE_LIBPCAP], [1], [Define if libpcap is available.])
-    AS_VAR_APPEND([ND_DEFINES], [" -D_ND_USE_LIBPCAP=1"])
-    AM_CONDITIONAL(USE_LIBPCAP, true)
-], [
-    AM_CONDITIONAL(USE_LIBPCAP, false)
-])
-
-AC_MSG_CHECKING([for DLT_* macros in pcap/bpf.h])
-AC_COMPILE_IFELSE([
-    AC_LANG_PROGRAM([
-        #include <pcap/bpf.h>
-    ], [
-        #ifndef DLT_EN10MB
-        #error "DLT_EN10MB not defined"
-        #endif
-    ])
-], [
-    AC_MSG_RESULT([no])
-], [
-    AC_MSG_RESULT([yes])
-    AC_DEFINE([_ND_PCAP_DLT_IN_BPF_H], [1], [Define if DLT_* macros are defined in pcap/bpf.h.])
-])
-
-case "${host_os}" in
-    linux*)
-        AC_CHECK_LIB([resolv],
-            [ns_initparse], [], [AC_MSG_ERROR([libresolv/ns_initparse() not found.])])
-
-        dnl CONNTRACK support
-
-        AC_ARG_ENABLE([conntrack],
-            [AS_HELP_STRING([--enable-conntrack], [Enable connection tracking support [default=yes]])],
-            [],
-            [enable_conntrack=yes])
-
-        AS_IF([test "x$enable_conntrack" = "xyes"], [
-            AC_DEFINE([_ND_USE_CONNTRACK], [1],
-                [Define to enable connection tracking support.])
-            PKG_CHECK_MODULES([LIBMNL], [libmnl >= 1.0.3])
-            PKG_CHECK_MODULES([LIBNETFILTER_CONNTRACK], [libnetfilter_conntrack >= 1.0.4])
-            AS_VAR_APPEND([ND_DEFINES], [" -D_ND_USE_CONNTRACK=1"])
-            AM_CONDITIONAL(USE_CONNTRACK, true)
-        ], [
-            AM_CONDITIONAL(USE_CONNTRACK, false)
-        ])
-
-        dnl CONNTRACK meta-data extraction support
-
-        AC_ARG_ENABLE([conntrack-mdata],
-            [AS_HELP_STRING([--enable-conntrack-mdata], [Enable connection tracking metadata [default=no]])],
-            [],
-            [enable_conntrack_mdata=no])
-
-        AS_IF([test "x$enable_conntrack_mdata" = "xyes"], [
-            AC_DEFINE([_ND_WITH_CONNTRACK_MDATA], [1], [Enable to extract conntrack metadata.])
-            AS_VAR_APPEND([ND_DEFINES], [" -D_ND_WITH_CONNTRACK_MDATA=1"])
-        ])
-
-        dnl NETLINK support
-
-        AC_ARG_ENABLE([netlink],
-            [AS_HELP_STRING([--enable-netlink], [Enable Netlink socket support [default=yes]])],
-            [],
-            [enable_netlink=yes])
-
-        AS_IF([test "x$enable_netlink" = "xyes"], [
-            AC_DEFINE([_ND_USE_NETLINK], [1],
-                [Define to enable Netlink socket support.])
-            AM_CONDITIONAL(USE_NETLINK, true)
-            AS_VAR_APPEND([ND_DEFINES], [" -D_ND_USE_NETLINK=1"])
-        ], [
-            AM_CONDITIONAL(USE_NETLINK, false)
-        ])
-
-        dnl TPACKETv3 Capture Support
-
-        AC_ARG_ENABLE([tpacketv3],
-            [AS_HELP_STRING([--enable-tpacketv3], [Enable TPACKETv3 capture support [default=yes]])],
-            [],
-            [enable_tpacketv3=yes])
-
-        AS_IF([test "x$enable_tpacketv3" = "xyes"], [
-            AC_CHECK_HEADERS([linux/if_packet.h], [],
-                AC_MSG_ERROR([linux/if_packet.h header(s) not found.])
-            )
-            AC_DEFINE([_ND_USE_TPACKETV3], [1],
-                [Define to enable TPACKETv3 capture support.])
-            AM_CONDITIONAL(USE_TPACKETV3, true)
-            AS_VAR_APPEND([ND_DEFINES], [" -D_ND_USE_TPACKETV3=1"])
-        ], [
-            AM_CONDITIONAL(USE_TPACKETV3, false)
-        ])
-
-        dnl NFQUEUE Capture Support
-
-        AC_ARG_ENABLE([nfqueue],
-            [AS_HELP_STRING([--enable-nfqueue], [Enable NFQUEUE capture support [default=yes]])],
-            [],
-            [enable_nfqueue=no])
-
-        AS_IF([test "x$enable_nfqueue" = "xyes"], [
-            PKG_CHECK_MODULES([LIBNETFILTER_QUEUE], [libnetfilter_queue >= 1.0.4])
-            AC_DEFINE([_ND_USE_NFQUEUE], [1],
-                [Define to enable NFQUEUE capture support.])
-            AM_CONDITIONAL(USE_NFQUEUE, true)
-            AS_VAR_APPEND([ND_DEFINES], [" -D_ND_USE_NFQUEUE=1"])
-        ], [
-            AM_CONDITIONAL(USE_NFQUEUE, false)
-        ])
-        ;;
-
-    *)
-        AM_CONDITIONAL(USE_CONNTRACK, false)
-        AM_CONDITIONAL(USE_NETLINK, false)
-        AM_CONDITIONAL(USE_NFQUEUE, false)
-        AM_CONDITIONAL(USE_TPACKETV3, false)
-        ;;
-esac
-
-PKG_CHECK_MODULES([LIBCURL], [libcurl])
-PKG_CHECK_MODULES([ZLIB], [zlib])
-
-# Parameters: --with/without
-AC_ARG_WITH([systemdsystemunitdir],
-     [AS_HELP_STRING([--with-systemdsystemunitdir=DIR], [Directory for systemd service files])],,
-     [with_systemdsystemunitdir=auto])
-
-AS_IF([test "x$with_systemdsystemunitdir" = "xyes" -o "x$with_systemdsystemunitdir" = "xauto"], [
-     def_systemdsystemunitdir=$($PKG_CONFIG --variable=systemdsystemunitdir systemd)
-
-     AS_IF([test "x$def_systemdsystemunitdir" = "x"],
-   [AS_IF([test "x$with_systemdsystemunitdir" = "xyes"],
-    [AC_MSG_ERROR([systemd support requested but pkg-config unable to query systemd package])])
-    with_systemdsystemunitdir=no],
-   [with_systemdsystemunitdir="$def_systemdsystemunitdir"])])
-
-AS_IF([test "x$with_systemdsystemunitdir" != "xno"],
-      [AC_SUBST([systemdsystemunitdir], [$with_systemdsystemunitdir])])
-AM_CONDITIONAL([HAVE_SYSTEMD], [test "x$with_systemdsystemunitdir" != "xno"])
-
-AC_ARG_WITH([tmpfilesdir],
-     [AS_HELP_STRING([--with-tmpfilesdir=DIR], [Directory for systemd tmpfiles configuration])],,
-     [with_tmpfilesdir=auto])
-
-AS_IF([test "x$with_tmpfilesdir" = "xyes" -o "x$with_tmpfilesdir" = "xauto"], [
-     def_tmpfilesdir=$($PKG_CONFIG --variable=tmpfilesdir systemd)
-     AS_IF([test "x$def_tmpfilesdir" = "x"],
-   [AS_IF([test "x$with_tmpfilesdir" = "xyes"],
-    [AC_MSG_ERROR([tmpfiles support requested but pkg-config unable to query systemd package])])
-    with_tmpfilesdir=no],
-   [with_tmpfilesdir="$def_tmpfilesdir"])])
-
-AS_IF([test "x$with_tmpfilesdir" != "xno"],
-      [AC_SUBST([tmpfilesdir], [$with_tmpfilesdir])])
-
-AC_ARG_WITH([libcurl-zlib],
-     [AS_HELP_STRING([--with-libcurl-zlib], [Enable if libcurl is GZIP capable])],,
-     [with_libcurl_zlib=yes])
-
-AS_IF([test "x$with_libcurl_zlib" != "xno"], [
-    AS_VAR_APPEND([ND_DEFINES], [" -D_ND_WITH_LIBCURL_ZLIB=1"])
-    AC_DEFINE([_ND_WITH_LIBCURL_ZLIB], [1], [Define if libcurl is GZIP capable.])
-])
-
-AC_ARG_WITH([persistentstatedir],
-     [AS_HELP_STRING([--with-persistentstatedir=DIR], [Directory for persistent state files])],,
-     [with_persistentstatedir=auto])
-
-AS_IF([test "x$with_persistentstatedir" = "xyes" -o "x$with_persistentstatedir" = "xauto"],
-    AC_SUBST([persistentstatedir], [$sysconfdir/netifyd]),
-    AC_SUBST([persistentstatedir], [$with_persistentstatedir])
+# --------------------------------------------------
+# Required libraries
+# --------------------------------------------------
+AC_CHECK_LIB([pthread], [pthread_create],
+  [],
+  [AC_MSG_ERROR([pthread is required])]
 )
 
-AC_ARG_WITH([volatilestatedir],
-     [AS_HELP_STRING([--with-volatilestatedir=DIR], [Directory for volatile state files])],,
-     [with_volatilestatedir=auto])
-
-AS_IF([test "x$with_volatilestatedir" = "xyes" -o "x$with_volatilestatedir" = "xauto"],
-    AC_SUBST([volatilestatedir], [$localstatedir/run/$PACKAGE_TARNAME]),
-    AC_SUBST([volatilestatedir], [$with_volatilestatedir])
+AC_CHECK_LIB([dl], [dlopen],
+  [],
+  [AC_MSG_ERROR([libdl is required])]
 )
 
-AM_CONDITIONAL(USE_LIBGCRYPT_SYSTEM, false)
+# --------------------------------------------------
+# Optional Features
+# --------------------------------------------------
 
-AC_ARG_WITH([local-libgcrypt],
-    [AS_HELP_STRING([--with-local-libgcrypt], [Link nDPI against the local system libgcrypt instead of the bundled libgcrypt light])],,
-    [with_local_libgcrypt=no])
+# ---- Debug mode
+AC_ARG_ENABLE([debug],
+  AS_HELP_STRING([--enable-debug], [Enable debug logging]),
+  [],
+  [enable_debug=no]
+)
 
-AS_IF([test "x$with_local_libgcrypt" = "xyes"], [
-    AM_CONDITIONAL(USE_LIBGCRYPT_SYSTEM, true)
-    LIBS="${LIBS} -lgcrypt -lgpg-error"
+AS_IF([test "x$enable_debug" = "xyes"], [
+  AC_DEFINE([AG_ENABLE_DEBUG], [1], [Enable debug logging])
 ])
 
-# Parameters: --enable/disable
+# ---- Lean mode
+AC_ARG_ENABLE([lean],
+  AS_HELP_STRING([--enable-lean], [Build minimal gateway]),
+  [],
+  [enable_lean=no]
+)
 
-AC_ARG_ENABLE([libtcmalloc],
-    [AS_HELP_STRING([--enable-libtcmalloc], [Enable Thread Caching malloc support [default=yes]])],
-    [],
-    [enable_libtcmalloc=yes])
-
-AM_CONDITIONAL(USE_LIBTCMALLOC, false)
-AM_CONDITIONAL(USE_LIBTCMALLOC_BUNDLED, false)
-
-AS_IF([test "x$enable_libtcmalloc" = "xyes"], [
-
-    AC_DEFINE([_ND_USE_LIBTCMALLOC], [1],
-        [Define to enable Thread Caching malloc support.])
-    AS_VAR_APPEND([ND_DEFINES], [" -D_ND_USE_LIBTCMALLOC=1"])
-
-    PKG_CHECK_MODULES([LIBTCMALLOC], [libtcmalloc_minimal], [
-        AM_CONDITIONAL(USE_LIBTCMALLOC, true)
-
-        AC_LANG_PUSH([C++])
-        AC_CHECK_HEADERS([gperftools/malloc_extension.h])
-        AC_LANG_POP([C++])
-    ], [
-        AM_CONDITIONAL(USE_LIBTCMALLOC, true)
-        AM_CONDITIONAL(USE_LIBTCMALLOC_BUNDLED, true)
-
-        LIBTCMALLOC_LIBS="${ac_abs_confdir}/libs/gperftools/.libs/libtcmalloc_minimal.a"
-        LIBTCMALLOC_CFLAGS="-I ${ac_abs_confdir}/libs/gperftools/src"
-    ])
-
-    AM_COND_IF([USE_LIBTCMALLOC_BUNDLED], [
-        AC_CONFIG_SUBDIRS([libs/gperftools])
-        AC_MSG_NOTICE([using tcmalloc (gperftools) from bundled libs...])
-        AC_DEFINE([HAVE_GPERFTOOLS_MALLOC_EXTENSION_H], [1],
-            [Define to 1 if you have the <gperftools/malloc_extension.h> header file.])
-    ])
+AS_IF([test "x$enable_lean" = "xyes"], [
+  AC_DEFINE([AG_LEAN_BUILD], [1], [Lean build])
 ])
 
-AC_ARG_ENABLE([lean-and-mean],
-    [AS_HELP_STRING([--enable-lean-and-mean], [Enable build for embedded systems [default=no]])],
-    [],
-    [enable_lean_and_mean=no])
+# --------------------------------------------------
+# Networking
+# --------------------------------------------------
 
-AS_IF([test "x$enable_lean_and_mean" = "xyes"], [
-    AC_DEFINE([_ND_LEAN_AND_MEAN], [1],
-        [Define to build smallest possible binary.])
-    AS_VAR_APPEND([ND_DEFINES], [" -D_ND_LEAN_AND_MEAN=1"])
-    AM_CONDITIONAL(ENABLE_LEAN_AND_MEAN, true)
-], [
-    AM_CONDITIONAL(ENABLE_LEAN_AND_MEAN, false)
+# ---- Unix socket
+AC_ARG_ENABLE([unix-socket],
+  AS_HELP_STRING([--enable-unix-socket], [Enable Unix socket IPC]),
+  [],
+  [enable_unix_socket=yes]
+)
+
+AS_IF([test "x$enable_unix_socket" = "xyes"], [
+  AC_DEFINE([AG_ENABLE_UNIX_SOCKET], [1], [Unix socket enabled])
 ])
 
-AC_ARG_ENABLE([extended-stats],
-    [AS_HELP_STRING([--enable-extended-stats], [Enable the collection of additional flow statistics [default=yes]])],
-    [],
-    [enable_extended_stats=yes])
+# ---- TCP/IP
+AC_ARG_ENABLE([tcp],
+  AS_HELP_STRING([--enable-tcp], [Enable TCP gateway]),
+  [],
+  [enable_tcp=yes]
+)
 
-AS_IF([test "x$enable_extended_stats" = "xyes"], [
-    AC_DEFINE([_ND_EXTENDED_STATS], [1],
-        [Define to enable the collection of additional flow statistics.])
-    AS_VAR_APPEND([ND_DEFINES], [" -D_ND_EXTENDED_STATS=1"])
-    AM_CONDITIONAL(ENABLE_EXTENDED_STATS, true)
-], [
-    AM_CONDITIONAL(ENABLE_EXTENDED_STATS, false)
+AS_IF([test "x$enable_tcp" = "xyes"], [
+  AC_DEFINE([AG_ENABLE_TCP], [1], [TCP enabled])
 ])
 
-AC_ARG_ENABLE([ndpi-debug],
-    [AS_HELP_STRING([--enable-ndpi-debug], [Enable nDPI debug messages [default=no]])],
-    [],
-    [enable_ndpi_debug=no])
+# --------------------------------------------------
+# TLS (OpenSSL)
+# --------------------------------------------------
+AC_ARG_ENABLE([tls],
+  AS_HELP_STRING([--enable-tls], [Enable TLS (OpenSSL)]),
+  [],
+  [enable_tls=yes]
+)
 
-AS_IF([test "x$enable_ndpi_debug" = "xyes"], [
-    AC_DEFINE([NDPI_ENABLE_DEBUG_MESSAGES], [1],
-        [Define to enable nDPI debug messages.])
-    AS_VAR_APPEND([ND_DEFINES], [" -DNDPI_ENABLE_DEBUG_MESSAGES=1"])
+AS_IF([test "x$enable_tls" = "xyes"], [
+  PKG_CHECK_MODULES([OPENSSL], [openssl], [
+    AC_DEFINE([AG_ENABLE_TLS], [1], [TLS enabled])
+  ], [
+    AC_MSG_ERROR([OpenSSL requested but not found])
+  ])
 ])
 
-# Checks for required header files.
-AC_CHECK_HEADERS([arpa/inet.h fcntl.h netdb.h net/ethernet.h stdint.h stdlib.h string.h sys/file.h sys/ioctl.h sys/socket.h sys/types.h sys/time.h sys/un.h syslog.h unistd.h], [], AC_MSG_ERROR([required header(s) not found.]))
-AC_CHECK_HEADERS([netinet/in.h netinet/ip.h netinet/tcp.h netinet/udp.h], [], AC_MSG_ERROR([required netinet header(s) not found.]),
-[[#ifdef HAVE_SYS_TYPES_H
-#include <sys/types.h>
-#endif
-#ifdef HAVE_NETINET_IN_H
-#include <netinet/in.h>
-#endif
-]])
+# --------------------------------------------------
+# systemd (optional)
+# --------------------------------------------------
+PKG_CHECK_MODULES([SYSTEMD], [systemd],
+  [have_systemd=yes],
+  [have_systemd=no]
+)
 
-# Check for optional header files.
-AC_CHECK_HEADERS([endian.h pthread_np.h sys/cpuset.h sys/endian.h linux/ppp_defs.h net/ppp_defs.h stdalign.h])
-AC_CHECK_HEADERS([pcap/sll.h pcap/vlan.h pcap/dlt.h])
+AM_CONDITIONAL([HAVE_SYSTEMD], [test "x$have_systemd" = "xyes"])
 
-# Check for optional parameters
-
-# Checks for typedefs, structures, sizes, and compiler characteristics.
-AC_C_INLINE
-AC_TYPE_INT32_T
-AC_TYPE_INT64_T
-AC_TYPE_SIZE_T
-AC_TYPE_SSIZE_T
-AC_TYPE_UINT16_T
-AC_TYPE_UINT32_T
-AC_TYPE_UINT64_T
-AC_TYPE_UINT8_T
-AC_CHECK_SIZEOF([long])
-
-# Checks for library functions.
-AC_FUNC_CHOWN
-AC_FUNC_STRNLEN
-
-AC_CHECK_FUNCS([ftruncate memchr memset pathconf select socket strcasecmp strdup strerror])
-
-AC_CHECK_FUNC([pthread_setname_np], [
-    AC_DEFINE([HAVE_PTHREAD_SETNAME_NP], [1], [Define if pthread_setname_np is available.])
-])
-AC_CHECK_FUNC([pthread_attr_setaffinity_np], [
-    AC_DEFINE([HAVE_PTHREAD_ATTR_SETAFFINITY_NP], [1], [Define if pthread_attr_setaffinity_np is available.])
-])
-AC_CHECK_FUNC([malloc_trim], [
-    AC_DEFINE([HAVE_MALLOC_TRIM], [1], [Define if malloc_trim is available.])
-])
-AC_CHECK_FUNC([getprotobynumber_r], [
-    AC_DEFINE([HAVE_GETPROTOBYNUMBER_R], [1], [Define if getprotobynumber_r is available.])
+AS_IF([test "x$have_systemd" = "xyes"], [
+  AC_DEFINE([AG_HAVE_SYSTEMD], [1], [systemd available])
 ])
 
-AX_GIT_VARS
+# --------------------------------------------------
+# Directories
+# --------------------------------------------------
 
-AC_SUBST([GIT_SOURCE_URL], [https://gitlab.com/netify.ai/public/netify-agent.git])
+AC_ARG_WITH([rundir],
+  AS_HELP_STRING([--with-rundir=DIR], [PID / runtime dir]),
+  [],
+  [with_rundir=$localstatedir/run/$PACKAGE_TARNAME]
+)
+AC_SUBST([rundir])
 
-# Defines substitution for pkg-config
-AC_SUBST([ND_DEFINES], [$ND_DEFINES])
+AC_ARG_WITH([sysconfdir-agent],
+  AS_HELP_STRING([--with-sysconfdir-agent=DIR], [Config dir]),
+  [],
+  [with_sysconfdir_agent=$sysconfdir/$PACKAGE_TARNAME]
+)
+AC_SUBST([sysconfdir_agent])
 
-# Output files
-AC_CONFIG_FILES([deploy/openwrt/Makefile deploy/openwrt/files/netifyd.init \
-    deploy/openwrt/files/netifyd.config])
-AC_CONFIG_FILES([libnetifyd.pc])
-AC_CONFIG_FILES(
-    [Makefile src/Makefile include/Makefile doc/Makefile \
-     tests/Makefile deploy/Makefile])
-AC_CONFIG_FILES([deploy/buildroot/package/netifyd/netifyd.mk])
-AC_CONFIG_FILES([deploy/debian/Makefile])
-AC_CONFIG_FILES([deploy/freebsd/Makefile])
-AC_CONFIG_FILES([deploy/rpm/Makefile])
-AC_CONFIG_FILES([deploy/systemd/Makefile])
-AC_CONFIG_FILES([doc/netifyd.8 doc/netifyd.conf.5])
-AC_CONFIG_FILES([util/generate-protocol-csv.sh],
-    [chmod +x util/generate-protocol-csv.sh])
-AC_CONFIG_FILES([util/generate-alpn-include.sh],
-    [chmod +x util/generate-alpn-include.sh])
+# --------------------------------------------------
+# Headers
+# --------------------------------------------------
+AC_CHECK_HEADERS([
+  stdlib.h
+  stdint.h
+  string.h
+  unistd.h
+  sys/socket.h
+  sys/un.h
+  sys/types.h
+  netinet/in.h
+  arpa/inet.h
+], [], AC_MSG_ERROR([Required headers missing]))
+
+# --------------------------------------------------
+# Functions
+# --------------------------------------------------
+AC_CHECK_FUNCS([
+  socket
+  bind
+  listen
+  accept
+  select
+  poll
+  memset
+  strdup
+])
+
+# --------------------------------------------------
+# Output
+# --------------------------------------------------
+AC_CONFIG_FILES([
+  Makefile
+  src/Makefile
+  include/Makefile
+  systemd/agent-gateway.service
+])
 
 AC_OUTPUT
 
-AS_BOX([${PACKAGE_NAME} v${PACKAGE_VERSION}])
-case "${host_os}" in
-    linux*)
-        AC_MSG_NOTICE([Conntrack support: ${enable_conntrack}])
-        AC_MSG_NOTICE([Conntrack meta-data: ${enable_conntrack_mdata}])
-        AC_MSG_NOTICE([Netlink support: ${enable_netlink}])
-        AC_MSG_NOTICE([TPv3 capture support: ${enable_tpacketv3}])
-        AC_MSG_NOTICE([NFQUEUE capture support: ${enable_nfqueue}])
-    ;;
-esac
+AS_BOX([Agent Gateway v$PACKAGE_VERSION])
 
-AC_MSG_NOTICE([Use libCURL zlib support: ${with_libcurl_zlib}])
-AC_MSG_NOTICE([Use system libgcrypt: ${with_local_libgcrypt}])
-AC_MSG_NOTICE([Use thread-caching malloc: ${enable_libtcmalloc}])
-AC_MSG_NOTICE([Enable lean-and-mean build: ${enable_lean_and_mean}])
-AC_MSG_NOTICE([Enable extended flow stats: ${enable_extended_stats}])
-AC_MSG_NOTICE([Installation prefix directory: ${prefix}])
-AC_MSG_NOTICE([Persistent state directory: ${persistentstatedir}])
-AC_MSG_NOTICE([Volatile state directory: ${volatilestatedir}])
-AC_MSG_NOTICE([Shared data directory: ${datadir}/${PACKAGE_TARNAME}])
-AC_MSG_NOTICE([Default configuration filename: ${sysconfdir}/${PACKAGE_TARNAME}.conf])
-AC_MSG_NOTICE([Default PID filename: ${volatilestatedir}/${PACKAGE_TARNAME}.pid])
+AC_MSG_NOTICE([Debug mode: ${enable_debug}])
+AC_MSG_NOTICE([Lean build: ${enable_lean}])
+AC_MSG_NOTICE([Unix socket: ${enable_unix_socket}])
+AC_MSG_NOTICE([TCP support: ${enable_tcp}])
+AC_MSG_NOTICE([TLS support: ${enable_tls}])
+AC_MSG_NOTICE([systemd: ${have_systemd}])
+AC_MSG_NOTICE([Config dir: ${sysconfdir_agent}])
+AC_MSG_NOTICE([Runtime dir: ${rundir}])
